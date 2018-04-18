@@ -1,0 +1,847 @@
+# ----------------------------------------------------------------------------
+#
+# Copyright (c) 2018, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+#
+# WSO2 Inc. licenses this file to you under the Apache License,
+# Version 2.0 (the "License"); you may not use this file except
+# in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# ----------------------------------------------------------------------------
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  WSO2 APIM Analytics Server 2.1.0 Minimum HA Deployment with APIM 2.1.0 all in one node.
+
+##############################################################################################
+# Mappings for Ubuntu AMIs
+# Refer https://cloud-images.ubuntu.com/locator/ec2/ for ubuntu AMI-ID's for the LTS version
+##############################################################################################
+Mappings:
+  RegionMap:
+    ap-northeast-1:
+      AMI: ami-2f2d9c49
+    ap-northeast-2:
+      AMI: ami-e49e398a
+    ap-south-1:
+      AMI: ami-46eea129
+    ap-southeast-1:
+      AMI: ami-84a6f3e7
+    ap-southeast-2:
+      AMI: ami-4cc8232e
+    ca-central-1:
+      AMI: ami-338b3057
+    eu-central-1:
+      AMI: ami-e22aaa8d
+    eu-west-1:
+      AMI: ami-2e832957
+    eu-west-2:
+      AMI: ami-3fc8d75b
+    sa-east-1:
+      AMI: ami-981550f4
+    us-east-1:
+      AMI: ami-c29e1cb8
+    us-east-2:
+      AMI: ami-f0f8d695
+    us-west-1:
+      AMI: ami-8b90a9eb
+    us-west-2:
+      AMI: ami-25cf1c5d
+
+#############################
+# User inputs
+#############################
+Parameters:
+  AMI:
+    Type: String
+    Default: ami-2fa9b84f
+    Description: AMI of the region. Keep READ_FROM_REGIONMAP to map Ubuntu AMI from the RegionMap in the script.
+  JDK:
+    Type: String
+    Default: "ORACLE_JDK8"
+    Description: Target Java version
+    AllowedValues:
+      - ORACLE_JDK7
+      - ORACLE_JDK8
+  DBEngine:
+    Type: String
+    Default: "sqlserver-ex"
+    Description: Database Engine
+    AllowedValues:
+      - mysql
+      - postgres
+      - mariadb
+      - sqlserver-ex
+      - oracle-se
+  DBEngineVersion:
+    Type: String
+    Default: "14.00.3015.40.v1"
+    Description: Database Engine version
+    MinLength: 1
+  DBUsername:
+    Type: String
+    Default: wso2carbon
+    Description: Database master account username
+    MinLength: 1
+    MaxLength: 20
+    ConstraintDescription : minimum - 1, maximum - 20 characters
+  DBPassword:
+    Type: String
+    Default: wso2carbon
+    NoEcho: true
+    Description: Database master account password
+    MinLength: 6
+    ConstraintDescription: minimum - 6 characters
+  DBClass:
+    Default: db.t2.medium
+    Description: Database instance class
+    Type: String
+    AllowedValues:
+      - db.t2.micro
+      - db.t2.small
+      - db.t2.medium
+      - db.t2.large
+      - db.t2.xlarge
+      - db.t2.2xlarge
+      - db.m4.large
+      - db.m4.xlarge
+      - db.m4.2xlarge
+    ConstraintDescription: must be a valid database instance type
+  DBAllocatedStorage:
+    Default: 20
+    Description: Size of the database (GB)
+    Type: Number
+    MinValue: 20
+    MaxValue: 6144
+    ConstraintDescription: minimum - 20 GB, maximum - 6144 GB
+  WUMUsername:
+    Type: String
+    Default: ""
+    Description: Enter WUM user name
+  WUMPassword:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Enter WUM user password to get the updated WSO2 products deployed. If not provided standard released pack will be deployed
+  EC2KeyPair:
+    Default: ""
+    Description: This is used to ssh to the node. If you don't have a key, please create one from AWS console and rerun the script
+    Type: "AWS::EC2::KeyPair::KeyName"
+  WSO2DASInstanceType:
+    Description: EC2 instance type of the WSO2 DAS Active and Passive Nodes
+    Type: String
+    Default: c5.xlarge
+    AllowedValues:
+      - t2.xlarge
+      - t2.2xlarge
+      - m4.xlarge
+      - m4.2xlarge
+      - m4.4xlarge
+      - m4.10xlarge
+      - m4.16xlarge
+      - m5.xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - m5.12xlarge
+      - m5.24xlarge
+      - c4.xlarge
+      - c4.2xlarge
+      - c4.4xlarge
+      - c4.8xlarge
+      - c5.xlarge
+      - c5.2xlarge
+      - c5.4xlarge
+      - c5.9xlarge
+      - c5.18xlarge
+    ConstraintDescription: must be a valid EC2 instance type
+  WSO2DASInstanceType2:
+    Description: EC2 instance type of the WSO2 DAS Backup Node
+    Type: String
+    Default: t2.medium
+    AllowedValues:
+      - t2.medium
+      - m3.medium
+      - m3.large
+      - m3.xlarge
+      - m3.2xlarge
+      - m4.large
+    ConstraintDescription: must be a valid EC2 instance type
+  WSO2APIMInstanceType:
+    Description: EC2 instance type of the WSO2 APIM Active and Passive Nodes
+    Type: String
+    Default: c3.xlarge
+    AllowedValues:
+      - c3.xlarge
+    ConstraintDescription: must be a valid EC2 instance type
+  AnalyticsProductName:
+    Type: String
+    Default: "wso2am-analytics"
+    Description: The Analytics Product Name
+  AnalyticsProductVersion:
+    Type: String
+    Default: "2.1.0"
+    Description: The Analytics Product version
+  APIMProductName:
+    Type: String
+    Default: "wso2am"
+    Description: The APIM Product Name
+  APIMProductVersion:
+    Type: String
+    Default: "2.1.0"
+    Description: The APIM Product version
+  AWSAccessKeyId:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Optional - The AWS Access Key ID used for AWS clustering
+  AWSAccessKeySecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Optional - The AWS Access Key Secret used for internal AWS clustering
+  DASNodeIP1:
+    Type: String
+    Default: '10.0.1.5'
+    Description: The DAS Node 1 Static IP Address
+  DASNodeIP2:
+    Type: String
+    Default: '10.0.1.6'
+    Description: The DAS Node 2 Static IP Address
+  DASDummyNodeIP:
+    Type: String
+    Default: '10.0.1.7'
+    Description: The Dummy DAS Node Static IP Address
+  APIMNodeIP:
+    Type: String
+    Default: '10.0.1.8'
+    Description: The APIM Static IP Address
+  ALBCertificateARN:
+    Type: String
+    Default: ""
+    Description: Enter the ARN value of the certificate uploaded to ACM for Application Load Balancers
+# Conditions
+Conditions:
+  UseDefaultUbuntuAMI: !Equals [!Ref AMI, READ_FROM_REGIONMAP]
+
+################################
+# Create AWS resources
+################################
+Resources:
+  ##############################
+  # Create VPC and subnets
+  ##############################
+  WSO2DASEnvVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      InstanceTenancy: default
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+        - Key: Name
+          Value: wso2-das-vpc
+  WSO2EnvPrivateSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+      VpcId: !Ref WSO2DASEnvVPC
+      Tags:
+        - Key: Name
+          Value: wso2-das-private-subnet
+  WSO2EnvPrivateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select
+        - '1'
+        - !GetAZs ''
+      VpcId: !Ref WSO2DASEnvVPC
+      Tags:
+        - Key: Name
+          Value: wso2-das-private-subnet2
+  WSO2EnvPublicSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.0.254.0/24
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+      VpcId: !Ref WSO2DASEnvVPC
+      Tags:
+        - Key: Name
+          Value: wso2-das-public-subnet
+  WSO2EnvPublicSubnet2:
+      Type: 'AWS::EC2::Subnet'
+      Properties:
+        CidrBlock: 10.0.253.0/24
+        AvailabilityZone: !Select
+          - '1'
+          - !GetAZs ''
+        VpcId: !Ref WSO2DASEnvVPC
+        Tags:
+          - Key: Name
+            Value: wso2-das-public-subnet2
+  WSO2EnvInternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties: {}
+  WSO2EnvDHCPOptions:
+    Type: 'AWS::EC2::DHCPOptions'
+    Properties:
+      DomainNameServers:
+        - AmazonProvidedDNS
+  WSO2EnvPublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref WSO2DASEnvVPC
+  WSO2EnvPrivateRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref WSO2DASEnvVPC
+  WSO2EnvBastionEIPAssociation:
+    Type: 'AWS::EC2::EIPAssociation'
+    Properties:
+      AllocationId: !GetAtt WSO2EnvBastionEIP.AllocationId
+      InstanceId: !Ref WSO2EnvBastionInstance
+  WSO2DASActiveENI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Tags:
+      - Key: node
+        Value: wso2-das-active-interface
+      Description: A nice description.
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref WSO2EnvInstanceSecurityGroup
+      SubnetId: !Ref WSO2EnvPrivateSubnet
+      PrivateIpAddress: !Ref DASNodeIP1
+  WSO2DASPassiveENI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Tags:
+      - Key: node
+        Value: wso2-das-passive-interface
+      Description: A nice description.
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref WSO2EnvInstanceSecurityGroup
+      SubnetId: !Ref WSO2EnvPrivateSubnet
+      PrivateIpAddress: !Ref DASNodeIP2
+  WSO2DummyDASENI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Tags:
+      - Key: node
+        Value: wso2-dummy-das-interface
+      Description: A nice description.
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref WSO2EnvInstanceSecurityGroup
+      SubnetId: !Ref WSO2EnvPrivateSubnet
+      PrivateIpAddress: !Ref DASDummyNodeIP
+  WSO2APIMENI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Tags:
+      - Key: node
+        Value: wso2-apim-interface
+      Description: A nice description.
+      SourceDestCheck: 'false'
+      GroupSet:
+        - !Ref WSO2EnvInstanceSecurityGroup
+      SubnetId: !Ref WSO2EnvPrivateSubnet
+      PrivateIpAddress: !Ref APIMNodeIP
+
+  ################################
+  # Create network configurations
+  ################################
+  WSO2EnvNATGateway:
+    DependsOn: gw1
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt WSO2EnvNATGWEIP.AllocationId
+      SubnetId: !Ref WSO2EnvPublicSubnet
+      Tags:
+        - Key: Name
+          Value: WSO2EnvNatGateway
+  gw1:
+      Type: 'AWS::EC2::VPCGatewayAttachment'
+      Properties:
+        VpcId: !Ref WSO2DASEnvVPC
+        InternetGatewayId: !Ref WSO2EnvInternetGateway
+  privatesubnetroute:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref WSO2EnvPrivateRouteTable
+      SubnetId: !Ref WSO2EnvPrivateSubnet
+  privatesubnetroute2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref WSO2EnvPrivateRouteTable
+      SubnetId: !Ref WSO2EnvPrivateSubnet2
+  publicsubnetroute:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref WSO2EnvPublicRouteTable
+      SubnetId: !Ref WSO2EnvPublicSubnet
+  publicsubnetroute2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref WSO2EnvPublicRouteTable
+      SubnetId: !Ref WSO2EnvPublicSubnet2
+  publicinernetgwroute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref WSO2EnvPublicRouteTable
+      GatewayId: !Ref WSO2EnvInternetGateway
+    DependsOn: gw1
+  privatenatgwroute:
+      Type: 'AWS::EC2::Route'
+      Properties:
+        DestinationCidrBlock: 0.0.0.0/0
+        RouteTableId: !Ref WSO2EnvPrivateRouteTable
+        NatGatewayId: !Ref WSO2EnvNATGateway
+  dchpassoc:
+    Type: 'AWS::EC2::VPCDHCPOptionsAssociation'
+    Properties:
+      VpcId: !Ref WSO2DASEnvVPC
+      DhcpOptionsId: !Ref WSO2EnvDHCPOptions
+  WSO2EnvDBSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: RDS subnet group
+      SubnetIds:
+        - !Ref WSO2EnvPrivateSubnet
+        - !Ref WSO2EnvPrivateSubnet2
+
+  #########################
+  # Create security groups
+  #########################
+  WSO2EnvBastionSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Security group for WSO2 Bastion instances
+      VpcId: !Ref WSO2DASEnvVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+  WSO2EnvInstanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Security group for DAS EC2 compute instances
+      VpcId: !Ref WSO2DASEnvVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        SourceSecurityGroupId: !Ref WSO2EnvBastionSecurityGroup
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 10.0.1.0/24
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 10.0.2.0/24
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 10.0.254.0/24
+  WSO2EnvDBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Security group for DAS RDS
+      VpcId: !Ref WSO2DASEnvVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 3306
+        ToPort: 3306
+        SourceSecurityGroupId: !Ref WSO2EnvInstanceSecurityGroup
+      - IpProtocol: tcp
+        FromPort: 5432
+        ToPort: 5432
+        SourceSecurityGroupId: !Ref WSO2EnvInstanceSecurityGroup
+      - IpProtocol: tcp
+        FromPort: 1433
+        ToPort: 1433
+        SourceSecurityGroupId: !Ref WSO2EnvInstanceSecurityGroup
+      - IpProtocol: tcp
+        FromPort: 1521
+        ToPort: 1521
+        SourceSecurityGroupId: !Ref WSO2EnvInstanceSecurityGroup
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 10.0.254.0/24
+  WSO2EnvLBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Security group for DAS ALB
+      VpcId: !Ref WSO2DASEnvVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+
+  ###########################
+  # Create Elastic IPs
+  ###########################
+  WSO2EnvBastionEIP:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+  WSO2EnvNATGWEIP:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+
+  #######################
+  # Create RDS instances
+  #######################
+  WSO2EnvDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: !Ref DBAllocatedStorage
+      DBInstanceClass: !Ref DBClass
+      Engine: !Ref DBEngine
+      EngineVersion: !Ref DBEngineVersion
+      DBInstanceIdentifier: wso2-das-dbinstance
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      AutoMinorVersionUpgrade: false
+      BackupRetentionPeriod: 0
+      DBSubnetGroupName: !Ref WSO2EnvDBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref WSO2EnvDBSecurityGroup
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+    DeletionPolicy: Snapshot
+
+  #######################
+  # EC2 Compute instances
+  #######################
+  WSO2EnvBastionInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      ImageId:
+        Fn::If: [UseDefaultUbuntuAMI, !FindInMap [RegionMap, !Ref "AWS::Region", AMI], !Ref AMI]
+      InstanceType: t2.micro
+      KeyName: !Ref EC2KeyPair
+      Monitoring: 'false'
+      Tags:
+        - Key: Name
+          Value: wso2-das-bastion-node
+      NetworkInterfaces:
+        - DeleteOnTermination: 'true'
+          Description: Primary network interface
+          DeviceIndex: 0
+          SubnetId: !Ref WSO2EnvPublicSubnet
+          GroupSet:
+            - !Ref WSO2EnvBastionSecurityGroup
+  WSO2EnvActiveDASInstance:
+    Type: 'AWS::EC2::Instance'
+    DependsOn:
+      - WSO2EnvDBInstance
+      - WSO2EnvBastionInstance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      ImageId:
+        Fn::If: [UseDefaultUbuntuAMI, !FindInMap [RegionMap, !Ref "AWS::Region", AMI], !Ref AMI]
+      InstanceType: !Ref WSO2DASInstanceType
+      KeyName: !Ref EC2KeyPair
+      Monitoring: 'false'
+      NetworkInterfaces:
+          - NetworkInterfaceId: !Ref WSO2DASActiveENI
+            DeviceIndex: 0
+      BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 50
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -xe
+            cd /home/ubuntu/
+            git clone https://github.com/ksdperera/cloudformation-das.git --depth 1
+            chown -R ubuntu cloudformation-das
+            cd cloudformation-das/scripts
+            bash ./setup-env.sh -user ubuntu -wumuser ${WUMUsername} -wumpassword '${WUMPassword}' -jdk ${JDK} -dbengine ${DBEngine}
+            bash ./init-rds.sh -user ubuntu -rdshost ${WSO2EnvDBInstance.Endpoint.Address} -rdsport ${WSO2EnvDBInstance.Endpoint.Port} -rdsengine ${DBEngine} -rdsversion ${DBEngineVersion} -rdsusername ${DBUsername} -rdspassword ${DBPassword} -productname ${AnalyticsProductName} -productversion ${AnalyticsProductVersion}
+            bash ./setup-das.sh -user ubuntu -rdshost ${WSO2EnvDBInstance.Endpoint.Address} -rdsport ${WSO2EnvDBInstance.Endpoint.Port} -rdsengine ${DBEngine} -rdsversion ${DBEngineVersion} -rdsusername ${DBUsername} -rdspassword ${DBPassword} -mynodeid Node-A -productname ${AnalyticsProductName} -productversion ${AnalyticsProductVersion} -das2ip ${DASNodeIP2} -awsid ${AWSAccessKeyId} -awssecret ${AWSAccessKeySecret} -securitygroup ${WSO2EnvInstanceSecurityGroup.GroupId} -region ${AWS::Region}
+      Tags:
+        - Key: Name
+          Value: wso2-apim-analytics-active
+  WSO2EnvPassiveDASInstance:
+      Type: 'AWS::EC2::Instance'
+      DependsOn:
+        - WSO2EnvActiveDASInstance
+      Properties:
+        DisableApiTermination: 'false'
+        InstanceInitiatedShutdownBehavior: stop
+        ImageId:
+          Fn::If: [UseDefaultUbuntuAMI, !FindInMap [RegionMap, !Ref "AWS::Region", AMI], !Ref AMI]
+        InstanceType: !Ref WSO2DASInstanceType
+        KeyName: !Ref EC2KeyPair
+        Monitoring: 'false'
+        NetworkInterfaces:
+          - NetworkInterfaceId: !Ref WSO2DASPassiveENI
+            DeviceIndex: 0
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 50
+        UserData:
+          Fn::Base64:
+            !Sub |
+              #!/bin/bash -xe
+              cd /home/ubuntu/
+              git clone https://github.com/ksdperera/cloudformation-das.git --depth 1
+              chown -R ubuntu cloudformation-das
+              cd cloudformation-das/scripts
+              bash ./setup-env.sh -user ubuntu -wumuser ${WUMUsername} -wumpassword '${WUMPassword}' -jdk ${JDK} -dbengine ${DBEngine}
+              bash ./setup-das.sh -user ubuntu -rdshost ${WSO2EnvDBInstance.Endpoint.Address} -rdsport ${WSO2EnvDBInstance.Endpoint.Port} -rdsengine ${DBEngine} -rdsversion ${DBEngineVersion} -rdsusername ${DBUsername} -rdspassword ${DBPassword} -mynodeid Node-B -productname ${AnalyticsProductName} -productversion ${AnalyticsProductVersion} -das1ip ${DASNodeIP1} -awsid ${AWSAccessKeyId} -awssecret ${AWSAccessKeySecret} -securitygroup ${WSO2EnvInstanceSecurityGroup.GroupId} -region ${AWS::Region}
+        Tags:
+          - Key: Name
+            Value: wso2-apim-analytics-passive
+  WSO2EnvDummyDASInstance:
+      Type: 'AWS::EC2::Instance'
+      DependsOn:
+        - WSO2EnvPassiveDASInstance
+      Properties:
+        DisableApiTermination: 'false'
+        InstanceInitiatedShutdownBehavior: stop
+        ImageId:
+          Fn::If: [UseDefaultUbuntuAMI, !FindInMap [RegionMap, !Ref "AWS::Region", AMI], !Ref AMI]
+        InstanceType: !Ref WSO2DASInstanceType2
+        KeyName: !Ref EC2KeyPair
+        Monitoring: 'false'
+        NetworkInterfaces:
+          - NetworkInterfaceId: !Ref WSO2DummyDASENI
+            DeviceIndex: 0
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 30
+        UserData:
+          Fn::Base64:
+            !Sub |
+              #!/bin/bash -xe
+              cd /home/ubuntu/
+              git clone https://github.com/ksdperera/cloudformation-das.git --depth 1
+              chown -R ubuntu cloudformation-das
+              cd cloudformation-das/scripts
+              bash ./setup-env.sh -user ubuntu -wumuser ${WUMUsername} -wumpassword '${WUMPassword}' -jdk ${JDK} -dbengine ${DBEngine}
+              bash ./setup-dummy-das.sh -user ubuntu -productname ${AnalyticsProductName} -productversion ${AnalyticsProductVersion} -das1ip ${DASNodeIP1} -das2ip ${DASNodeIP2}
+        Tags:
+          - Key: Name
+            Value: wso2-dummy-apim-analytics
+  WSO2EnvAPIMInstance:
+      Type: 'AWS::EC2::Instance'
+      DependsOn:
+        - WSO2EnvDummyDASInstance
+      Properties:
+        DisableApiTermination: 'false'
+        InstanceInitiatedShutdownBehavior: stop
+        ImageId:
+          Fn::If: [UseDefaultUbuntuAMI, !FindInMap [RegionMap, !Ref "AWS::Region", AMI], !Ref AMI]
+        InstanceType: !Ref WSO2APIMInstanceType
+        KeyName: !Ref EC2KeyPair
+        Monitoring: 'false'
+        NetworkInterfaces:
+          - NetworkInterfaceId: !Ref WSO2APIMENI
+            DeviceIndex: 0
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 50
+        UserData:
+          Fn::Base64:
+            !Sub |
+              #!/bin/bash -xe
+              cd /home/ubuntu/
+              git clone https://github.com/ksdperera/cloudformation-das.git --depth 1
+              cd cloudformation-das/scripts
+              bash ./setup-env.sh -user ubuntu -wumuser ${WUMUsername} -wumpassword '${WUMPassword}' -jdk ${JDK} -dbengine ${DBEngine}
+              cd ../solutions/apim-analytics/apim-scripts
+              bash ./setup-apim.sh -user ubuntu -rdshost ${WSO2EnvDBInstance.Endpoint.Address} -rdsport ${WSO2EnvDBInstance.Endpoint.Port} -rdsengine ${DBEngine} -rdsversion ${DBEngineVersion} -rdsusername ${DBUsername} -rdspassword ${DBPassword} -productname ${APIMProductName} -productversion ${APIMProductVersion} -das1ip ${DASNodeIP1} -das2ip ${DASNodeIP2}
+        Tags:
+          - Key: Name
+            Value: wso2-apim-all-in-one
+
+  ########################
+  # Create DAS Load Balancers
+  #######################
+  WSO2EnvDASApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: wso2-das
+      Scheme: internet-facing
+      Subnets:
+        - !Ref WSO2EnvPublicSubnet
+        - !Ref WSO2EnvPublicSubnet2
+      SecurityGroups:
+        - !Ref WSO2EnvLBSecurityGroup
+  WSO2EnvDASALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: HTTPS
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 4
+      HealthCheckPath: /carbon/admin/login.jsp
+      HealthCheckPort: 9443
+      Matcher:
+        HttpCode: 200
+      Name: das-carbon-9443
+      Port: 443
+      Protocol: HTTPS
+      TargetGroupAttributes:
+      - Key: deregistration_delay.timeout_seconds
+        Value: '20'
+      - Key: stickiness.enabled
+        Value: 'true'
+      Targets:
+      - Id: !Ref WSO2EnvActiveDASInstance
+        Port: 9443
+      - Id: !Ref WSO2EnvPassiveDASInstance
+        Port: 9443
+      UnhealthyThresholdCount: 3
+      VpcId:
+        Ref: WSO2DASEnvVPC
+      Tags:
+      - Key: Name
+        Value: das-carbon-9443
+  WSO2EnvDASALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WSO2EnvDASALBTargetGroup
+      Certificates:
+        - CertificateArn: !Ref ALBCertificateARN
+      LoadBalancerArn: !Ref WSO2EnvDASApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS-1-1-2017-01
+
+  ########################
+  # Create APIM Load Balancers
+  #######################
+  WSO2EnvAPIMApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: wso2-apim
+      Scheme: internet-facing
+      Subnets:
+        - !Ref WSO2EnvPublicSubnet
+        - !Ref WSO2EnvPublicSubnet2
+      SecurityGroups:
+        - !Ref WSO2EnvLBSecurityGroup
+  WSO2EnvAPIMALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: HTTPS
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 4
+      HealthCheckPath: /carbon/admin/login.jsp
+      HealthCheckPort: 9443
+      Matcher:
+        HttpCode: 200
+      Name: apim-carbon-9443
+      Port: 443
+      Protocol: HTTPS
+      TargetGroupAttributes:
+      - Key: deregistration_delay.timeout_seconds
+        Value: '20'
+      - Key: stickiness.enabled
+        Value: 'true'
+      Targets:
+      - Id: !Ref WSO2EnvAPIMInstance
+        Port: 9443
+      UnhealthyThresholdCount: 3
+      VpcId:
+        Ref: WSO2DASEnvVPC
+      Tags:
+      - Key: Name
+        Value: apim-carbon-9443
+  WSO2EnvAPIMALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WSO2EnvAPIMALBTargetGroup
+      Certificates:
+        - CertificateArn: !Ref ALBCertificateARN
+      LoadBalancerArn: !Ref WSO2EnvAPIMApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS-1-1-2017-01
+
+#####################################
+# Print details of the created stack
+#####################################
+Outputs:
+  DatabaseHost:
+    Value: !Sub '${WSO2EnvDBInstance.Endpoint.Address}'
+    Description: Database Host
+  DatabasePort:
+    Value: !Sub '${WSO2EnvDBInstance.Endpoint.Port}'
+    Description: Database Port
+  BastionEIP:
+    Value: !Sub '${WSO2EnvBastionInstance.PublicIp}'
+    Description: Elastic IP of the Bastion Instance
+  WSO2ActiveDASPrivateIP:
+    Value: !Sub '${WSO2EnvActiveDASInstance.PrivateIp}'
+    Description: Private IP of the WSO2 DAS Active Instance
+  WSO2PassiveDASPrivateIP:
+    Value: !Sub '${WSO2EnvPassiveDASInstance.PrivateIp}'
+    Description: Private IP of the WSO2 DAS Passive Instance
+  WSO2DummyDASPrivateIP:
+    Value: !Sub '${WSO2EnvDummyDASInstance.PrivateIp}'
+    Description: Private IP of the WSO2 DAS Dummy Instance
+  WSO2APIMPrivateIP:
+    Value: !Sub '${WSO2EnvAPIMInstance.PrivateIp}'
+    Description: Private IP of the WSO2 APIM Instance
+  DASLBServerHost:
+    Value: !Sub '${WSO2EnvDASApplicationLoadBalancer.DNSName}'
+    Description: DNS Name of the ALB fronting WSO2 DAS Instance
+  DASLBServerPort:
+    Value: 443
+    Description: Listening Port of ALB fronting WSO2 DAS Instance
+  WSO2DASMCURL:
+    Value: !Sub 'https://${WSO2EnvDASApplicationLoadBalancer.DNSName}/carbon'
+    Description: Access URL of the Management Console
+  APIMLBServerHost:
+    Value: !Sub '${WSO2EnvAPIMApplicationLoadBalancer.DNSName}'
+    Description: DNS Name of the ALB fronting WSO2 APIM Instance
+  APIMLBServerPort:
+    Value: 443
+    Description: Listening Port of ALB fronting WSO2 APIM Instance
+  WSO2APIMMCURL:
+    Value: !Sub 'https://${WSO2EnvAPIMApplicationLoadBalancer.DNSName}/carbon'
+    Description: Access URL of the APIM Management Console
+  WSO2APIMPUBURL:
+    Value: !Sub 'https://${WSO2EnvAPIMApplicationLoadBalancer.DNSName}/publisher'
+    Description: Access URL of the APIM Publisher
+  WSO2APIMSTOREURL:
+    Value: !Sub 'https://${WSO2EnvAPIMApplicationLoadBalancer.DNSName}/store'
+    Description: Access URL of the APIM Store
