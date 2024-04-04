@@ -1,3 +1,6 @@
+# NOTE
+## WSO2 Data Analytics Server is deprecated and moved to the attic. Similarly, AWS Cloud Formation templates for DAS is deprecated and moved to the attic. 
+
 # AWS CloudFormation Templates for WSO2 Data Analytics Server Deployments
 
 This repository contains AWS CloudFormation templates for WSO2 Data Analytics Server.
